@@ -11,6 +11,7 @@ type Addition struct {
 	Cookie                     string `json:"cookie" help:"Fill in the cookie if need captcha"`
 	GenerateCAS                bool   `json:"generate_cas" help:"After upload, generate a same-name .cas file in the same directory"`
 	DeleteSource               bool   `json:"delete_source" help:"After generating the .cas file, delete the uploaded source file"`
+	RestoreSourceFromCAS       bool   `json:"restore_source_from_cas" help:"When uploading a .cas file, try to restore the source file by rapid upload instead of uploading the .cas file itself"`
 	GenerateCASAndDeleteSource bool   `json:"generate_cas_and_delete_source" ignore:"true"`
 	driver.RootID
 }

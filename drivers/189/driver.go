@@ -191,6 +191,17 @@ func (d *Cloud189) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Cloud189) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+	if d.shouldRestoreSourceFromCAS(stream.GetName()) {
+		obj, err := d.restoreSourceFromCAS(ctx, dstDir, stream)
+		if err != nil {
+			return nil, err
+		}
+		if up != nil {
+			up(100)
+		}
+		return obj, nil
+	}
+
 	sourceName := stream.GetName()
 	sourceSize := stream.GetSize()
 
