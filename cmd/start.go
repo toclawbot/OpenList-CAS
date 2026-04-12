@@ -39,19 +39,13 @@ func start() {
 		Args: args,
 		Env:  os.Environ(),
 	}
-	// 获取程序当前所在目录
 	currentDir, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
 
 	logFile := filepath.Join(currentDir, "start.log")
-
-	stdout, err := os.OpenFile(
-		logFile,
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE,
-		0666,
-	)
+	stdout, err := os.OpenFile(logFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
 		log.Fatal(os.Getpid(), ": failed to open start log file:", err)
 	}

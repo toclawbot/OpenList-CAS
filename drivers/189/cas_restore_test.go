@@ -16,6 +16,16 @@ func TestShouldRestoreSourceFromCAS(t *testing.T) {
 	}
 }
 
+func TestShouldDeleteCASAfterRestore(t *testing.T) {
+	driver := &Cloud189{Addition: Addition{DeleteCASAfterRestore: true}}
+	if !driver.shouldDeleteCASAfterRestore("movie.mkv.cas") {
+		t.Fatal("expected .cas cleanup to be enabled")
+	}
+	if driver.shouldDeleteCASAfterRestore("movie.mkv") {
+		t.Fatal("did not expect non-.cas file to trigger cleanup")
+	}
+}
+
 func TestResolveRestoreSourceName(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -47,9 +57,23 @@ func TestResolveRestoreSourceName(t *testing.T) {
 			want:        "renamed.mkv",
 		},
 		{
+			name:        "switch appends source extension when current name has none",
+			driver:      &Cloud189{Addition: Addition{RestoreSourceUseCurrentName: true}},
+			casFileName: "renamed.cas",
+			info:        &casfile.Info{Name: "movie.mkv"},
+			want:        "renamed.mkv",
+		},
+		{
 			name:        "switch ignores invalid payload name when current name is valid",
 			driver:      &Cloud189{Addition: Addition{RestoreSourceUseCurrentName: true}},
 			casFileName: "renamed.mkv.cas",
+			info:        &casfile.Info{Name: "folder/movie.mkv"},
+			want:        "renamed.mkv",
+		},
+		{
+			name:        "switch can still reuse payload extension when payload has a path",
+			driver:      &Cloud189{Addition: Addition{RestoreSourceUseCurrentName: true}},
+			casFileName: "renamed.cas",
 			info:        &casfile.Info{Name: "folder/movie.mkv"},
 			want:        "renamed.mkv",
 		},

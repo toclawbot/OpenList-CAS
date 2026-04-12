@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/drivers/base"
@@ -37,6 +38,7 @@ type Cloud189PC struct {
 	storageConfig driver.Config
 	ref           *Cloud189PC
 	cron          *cron.Cron
+	autoRestoreInFlight sync.Map
 }
 
 func (y *Cloud189PC) Config() driver.Config {
@@ -124,6 +126,9 @@ func (y *Cloud189PC) Init(ctx context.Context) (err error) {
 			utils.Log.Errorf("cleanFamilyTransferFolderError:%s", err)
 		}
 	})
+	if err := y.startAutoRestoreExistingCAS(); err != nil {
+		return err
+	}
 	return err
 }
 
@@ -142,6 +147,7 @@ func (y *Cloud189PC) Drop(ctx context.Context) error {
 		y.cron.Stop()
 		y.cron = nil
 	}
+	removeAutoRestoreWatcher(y)
 	return nil
 }
 

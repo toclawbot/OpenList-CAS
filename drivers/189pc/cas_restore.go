@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	stdpath "path"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,10 @@ func (y *Cloud189PC) shouldRestoreSourceFromCAS(name string) bool {
 	return y.RestoreSourceFromCAS && strings.HasSuffix(strings.ToLower(name), ".cas")
 }
 
+func (y *Cloud189PC) shouldDeleteCASAfterRestore(name string) bool {
+	return y.DeleteCASAfterRestore && strings.HasSuffix(strings.ToLower(name), ".cas")
+}
+
 func (y *Cloud189PC) resolveRestoreSourceName(casFileName string, info *casfile.Info) (string, error) {
 	restoreName := info.Name
 	if y.RestoreSourceUseCurrentName {
@@ -28,6 +33,11 @@ func (y *Cloud189PC) resolveRestoreSourceName(casFileName string, info *casfile.
 		restoreName = strings.TrimSpace(trimmedName)
 		if restoreName == "" {
 			return "", fmt.Errorf("restore from .cas failed: current .cas file name %q has an empty source file name", casFileName)
+		}
+		if !hasUsableExtension(restoreName) {
+			if sourceExt := normalizedSourceExtension(info.Name); sourceExt != "" {
+				restoreName += sourceExt
+			}
 		}
 	}
 	if strings.ContainsAny(restoreName, `/\`) {
@@ -44,12 +54,29 @@ func trimCASSuffix(name string) (string, bool) {
 	return name[:len(name)-len(suffix)], true
 }
 
+func hasUsableExtension(name string) bool {
+	ext := stdpath.Ext(name)
+	return ext != "" && ext != "."
+}
+
+func normalizedSourceExtension(name string) string {
+	ext := stdpath.Ext(strings.TrimSpace(name))
+	if ext == "" || ext == "." {
+		return ""
+	}
+	return ext
+}
+
 func (y *Cloud189PC) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, file model.FileStreamer) (model.Obj, error) {
 	info, err := readCASRestoreInfo(file)
 	if err != nil {
 		return nil, err
 	}
-	restoreName, err := y.resolveRestoreSourceName(file.GetName(), info)
+	return y.restoreSourceFromCASInfo(ctx, dstDir, file.GetName(), info)
+}
+
+func (y *Cloud189PC) restoreSourceFromCASInfo(ctx context.Context, dstDir model.Obj, casFileName string, info *casfile.Info) (model.Obj, error) {
+	restoreName, err := y.resolveRestoreSourceName(casFileName, info)
 	if err != nil {
 		return nil, err
 	}
