@@ -18,13 +18,40 @@ func (y *Cloud189PC) shouldRestoreSourceFromCAS(name string) bool {
 	return y.RestoreSourceFromCAS && strings.HasSuffix(strings.ToLower(name), ".cas")
 }
 
+func (y *Cloud189PC) resolveRestoreSourceName(casFileName string, info *casfile.Info) (string, error) {
+	restoreName := info.Name
+	if y.RestoreSourceUseCurrentName {
+		trimmedName, ok := trimCASSuffix(casFileName)
+		if !ok {
+			return "", fmt.Errorf("restore from .cas failed: current file name %q does not end with .cas", casFileName)
+		}
+		restoreName = strings.TrimSpace(trimmedName)
+		if restoreName == "" {
+			return "", fmt.Errorf("restore from .cas failed: current .cas file name %q has an empty source file name", casFileName)
+		}
+	}
+	if strings.ContainsAny(restoreName, `/\`) {
+		return "", fmt.Errorf("restore from .cas failed: source file name %q contains a path", restoreName)
+	}
+	return restoreName, nil
+}
+
+func trimCASSuffix(name string) (string, bool) {
+	const suffix = ".cas"
+	if !strings.HasSuffix(strings.ToLower(name), suffix) {
+		return "", false
+	}
+	return name[:len(name)-len(suffix)], true
+}
+
 func (y *Cloud189PC) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, file model.FileStreamer) (model.Obj, error) {
 	info, err := readCASRestoreInfo(file)
 	if err != nil {
 		return nil, err
 	}
-	if strings.ContainsAny(info.Name, `/\`) {
-		return nil, fmt.Errorf("restore from .cas failed: source file name %q contains a path", info.Name)
+	restoreName, err := y.resolveRestoreSourceName(file.GetName(), info)
+	if err != nil {
+		return nil, err
 	}
 
 	isFamily := y.isFamily()
@@ -37,7 +64,7 @@ func (y *Cloud189PC) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj,
 
 	params := Params{
 		"parentFolderId": dstDir.GetID(),
-		"fileName":       url.QueryEscape(info.Name),
+		"fileName":       url.QueryEscape(restoreName),
 		"fileSize":       strconv.FormatInt(info.Size, 10),
 		"sliceSize":      strconv.FormatInt(partSize(info.Size), 10),
 		"fileMd5":        strings.ToUpper(info.MD5),
@@ -55,7 +82,7 @@ func (y *Cloud189PC) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj,
 		return nil, err
 	}
 	if initMultiUpload.Data.FileDataExists != 1 {
-		return nil, fmt.Errorf("restore from .cas failed: source data for %q was not found in 189CloudPC", info.Name)
+		return nil, fmt.Errorf("restore from .cas failed: source data for %q was not found in 189CloudPC", restoreName)
 	}
 
 	var resp CommitMultiUploadFileResp

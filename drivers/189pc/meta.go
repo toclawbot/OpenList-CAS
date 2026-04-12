@@ -24,6 +24,7 @@ type Addition struct {
 	GenerateCAS                bool   `json:"generate_cas" help:"After upload, generate a same-name .cas file in the same directory"`
 	DeleteSource               bool   `json:"delete_source" help:"After generating the .cas file, delete the uploaded source file"`
 	RestoreSourceFromCAS       bool   `json:"restore_source_from_cas" help:"When uploading a .cas file, try to restore the source file by rapid upload instead of uploading the .cas file itself"`
+	RestoreSourceUseCurrentName bool  `json:"restore_source_use_current_name" help:"When restoring from a .cas file, use the current .cas filename without the .cas suffix as the restored source filename"`
 	GenerateCASAndDeleteSource bool   `json:"generate_cas_and_delete_source" ignore:"true"`
 }
 

@@ -18,13 +18,40 @@ func (d *Cloud189) shouldRestoreSourceFromCAS(name string) bool {
 	return d.RestoreSourceFromCAS && strings.HasSuffix(strings.ToLower(name), ".cas")
 }
 
+func (d *Cloud189) resolveRestoreSourceName(casFileName string, info *casfile.Info) (string, error) {
+	restoreName := info.Name
+	if d.RestoreSourceUseCurrentName {
+		trimmedName, ok := trimCASSuffix(casFileName)
+		if !ok {
+			return "", fmt.Errorf("restore from .cas failed: current file name %q does not end with .cas", casFileName)
+		}
+		restoreName = strings.TrimSpace(trimmedName)
+		if restoreName == "" {
+			return "", fmt.Errorf("restore from .cas failed: current .cas file name %q has an empty source file name", casFileName)
+		}
+	}
+	if strings.ContainsAny(restoreName, `/\`) {
+		return "", fmt.Errorf("restore from .cas failed: source file name %q contains a path", restoreName)
+	}
+	return restoreName, nil
+}
+
+func trimCASSuffix(name string) (string, bool) {
+	const suffix = ".cas"
+	if !strings.HasSuffix(strings.ToLower(name), suffix) {
+		return "", false
+	}
+	return name[:len(name)-len(suffix)], true
+}
+
 func (d *Cloud189) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, file model.FileStreamer) (model.Obj, error) {
 	info, err := readCASRestoreInfo(file)
 	if err != nil {
 		return nil, err
 	}
-	if strings.ContainsAny(info.Name, `/\`) {
-		return nil, fmt.Errorf("restore from .cas failed: source file name %q contains a path", info.Name)
+	restoreName, err := d.resolveRestoreSourceName(file.GetName(), info)
+	if err != nil {
+		return nil, err
 	}
 
 	sessionKey, err := d.getSessionKey()
@@ -35,7 +62,7 @@ func (d *Cloud189) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, f
 
 	res, err := d.uploadRequest("/person/initMultiUpload", map[string]string{
 		"parentFolderId": dstDir.GetID(),
-		"fileName":       encode(info.Name),
+		"fileName":       encode(restoreName),
 		"fileSize":       strconv.FormatInt(info.Size, 10),
 		"sliceSize":      strconv.FormatInt(cloud189CASSliceSize, 10),
 		"fileMd5":        info.MD5,
@@ -47,7 +74,7 @@ func (d *Cloud189) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, f
 
 	uploadFileID := utils.Json.Get(res, "data", "uploadFileId").ToString()
 	if uploadFileID == "" {
-		return nil, fmt.Errorf("restore from .cas failed: upload session for %q is missing uploadFileId", info.Name)
+		return nil, fmt.Errorf("restore from .cas failed: upload session for %q is missing uploadFileId", restoreName)
 	}
 	fileDataExists := utils.Json.Get(res, "data", "fileDataExists").ToInt() == 1
 	if !fileDataExists {
@@ -62,7 +89,7 @@ func (d *Cloud189) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, f
 		fileDataExists = utils.Json.Get(res, "data", "fileDataExists").ToInt() == 1
 	}
 	if !fileDataExists {
-		return nil, fmt.Errorf("restore from .cas failed: source data for %q was not found in 189Cloud", info.Name)
+		return nil, fmt.Errorf("restore from .cas failed: source data for %q was not found in 189Cloud", restoreName)
 	}
 
 	_, err = d.uploadRequest("/person/commitMultiUploadFile", map[string]string{
@@ -76,11 +103,11 @@ func (d *Cloud189) restoreSourceFromCAS(ctx context.Context, dstDir model.Obj, f
 		return nil, err
 	}
 
-	if obj, err := d.findFileByName(dstDir.GetID(), info.Name); err == nil {
+	if obj, err := d.findFileByName(dstDir.GetID(), restoreName); err == nil {
 		return obj, nil
 	}
 	return &model.Object{
-		Name: info.Name,
+		Name: restoreName,
 		Size: info.Size,
 	}, nil
 }
