@@ -1,13 +1,21 @@
-name: Beta Release (Docker)
-
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    # 加上忽略规则，避免纯文档修改触发 Docker 打包
+    paths-ignore:
+      - 'README.md'
+      - '*.md'
+      - '.github/**'
   pull_request:
     branches:
       - main
+    # PR 也一样，纯文档 PR 不触发打包
+    paths-ignore:
+      - 'README.md'
+      - '*.md'
+      - '.github/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
