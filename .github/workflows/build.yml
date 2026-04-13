@@ -3,6 +3,11 @@ name: Test Build
 on:
   pull_request:
     branches: ["main"]
+    # 加上忽略规则，PR 只改文档时不运行测试
+    paths-ignore:
+      - 'README.md'
+      - '*.md'
+      - '.github/**'
   workflow_dispatch:
 
 concurrency:
