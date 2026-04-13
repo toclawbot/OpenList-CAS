@@ -3,6 +3,11 @@ name: Beta Release builds
 on:
   push:
     branches: ["main"]
+    # 加上下面这几行，忽略不需要触发构建的文件和文件夹
+    paths-ignore:
+      - 'README.md'
+      - '*.md'          # 忽略所有 markdown 文件
+      - '.github/**'    # 可选：忽略 github workflow 配置文件本身的修改
   workflow_dispatch:
 
 concurrency:
