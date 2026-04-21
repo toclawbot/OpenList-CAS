@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
+	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
 	"github.com/OpenListTeam/OpenList/v4/internal/sign"
 	"github.com/OpenListTeam/OpenList/v4/internal/stream"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
@@ -131,6 +131,10 @@ func (d *Local) Drop(ctx context.Context) error {
 
 func (d *Local) GetAddition() driver.Additional {
 	return &d.Addition
+}
+
+func (d *Local) OpenListPlusAddition() *openlistplus.Addition {
+	return d.Addition.OpenListPlusAddition()
 }
 
 func (d *Local) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
@@ -406,53 +410,47 @@ func (d *Local) Remove(ctx context.Context, obj model.Obj) error {
 	return nil
 }
 
-func (d *Local) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	var err error
+func (d *Local) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+	prepared, err := openlistplus.PreparePut(ctx, d, dstDir, file)
+	if err != nil {
+		return nil, err
+	}
+	if prepared.Handled {
+		return prepared.Obj, nil
+	}
+	stream := prepared.Stream
 	fullPath := filepath.Join(dstDir.GetPath(), stream.GetName())
 	out, err := os.Create(fullPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	closed := false
 	defer func() {
-		if !closed {
-			_ = out.Close()
-		}
+		_ = out.Close()
 		if errors.Is(err, context.Canceled) {
 			_ = os.Remove(fullPath)
 		}
 	}()
-
-	var info *casUploadInfo
-	if d.shouldUploadCAS(stream.GetName()) {
-		casHasher := newCASHasherWriter()
-		err = utils.CopyWithCtx(ctx, io.MultiWriter(out, casHasher), stream, stream.GetSize(), up)
-		if err == nil {
-			info = casHasher.Info(stream.GetName())
-		}
-	} else {
-		err = utils.CopyWithCtx(ctx, out, stream, stream.GetSize(), up)
-	}
+	err = utils.CopyWithCtx(ctx, out, stream, stream.GetSize(), up)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err = out.Close(); err != nil {
-		return err
-	}
-	closed = true
 	err = os.Chtimes(fullPath, stream.ModTime(), stream.ModTime())
 	if err != nil {
 		log.Errorf("[local] failed to change time of %s: %s", fullPath, err)
 	}
-	d.updateDirSize(dstDir.GetPath())
-	if err = d.uploadCAS(ctx, dstDir, info); err != nil {
-		return err
-	}
-	if err = d.deleteSource(ctx, fullPath, info); err != nil {
-		return err
+	if d.directoryMap.Has(dstDir.GetPath()) {
+		d.directoryMap.UpdateDirSize(dstDir.GetPath())
+		d.directoryMap.UpdateDirParents(dstDir.GetPath())
 	}
 
-	return nil
+	uploadedObj := &model.Object{
+		Path:     fullPath,
+		Name:     stream.GetName(),
+		Size:     stream.GetSize(),
+		Modified: stream.ModTime(),
+		Ctime:    stream.CreateTime(),
+	}
+	return openlistplus.FinishPut(ctx, d, dstDir, prepared, uploadedObj)
 }
 
 func (d *Local) GetDetails(ctx context.Context) (*model.StorageDetails, error) {

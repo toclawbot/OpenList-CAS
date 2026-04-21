@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/drivers/base"
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
+	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -20,7 +21,6 @@ type Cloud189 struct {
 	client     *resty.Client
 	rsa        Rsa
 	sessionKey string
-	autoRestoreInFlight sync.Map
 }
 
 func (d *Cloud189) Config() driver.Config {
@@ -31,17 +31,21 @@ func (d *Cloud189) GetAddition() driver.Additional {
 	return &d.Addition
 }
 
+func (d *Cloud189) OpenListPlusAddition() *openlistplus.Addition {
+	return &d.Addition.Addition
+}
+
 func (d *Cloud189) Init(ctx context.Context) error {
 	d.client = base.NewRestyClient().
 		SetHeader("Referer", "https://cloud.189.cn/")
 	if err := d.newLogin(); err != nil {
 		return err
 	}
-	return d.startAutoRestoreExistingCAS()
+	return openlistplus.StartAutoRestoreExistingCAS(ctx, d)
 }
 
 func (d *Cloud189) Drop(ctx context.Context) error {
-	removeAutoRestoreWatcher(d)
+	openlistplus.StopAutoRestoreExistingCAS(d)
 	return nil
 }
 
@@ -196,47 +200,25 @@ func (d *Cloud189) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *Cloud189) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
-	if d.shouldRestoreSourceFromCAS(stream.GetName()) {
-		obj, err := d.restoreSourceFromCAS(ctx, dstDir, stream)
-		if err != nil {
-			return nil, err
-		}
-		if up != nil {
-			up(100)
-		}
-		return obj, nil
-	}
-
-	sourceName := stream.GetName()
-	sourceSize := stream.GetSize()
-
-	info, err := d.newUpload(ctx, dstDir, stream, up)
+func (d *Cloud189) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+	prepared, err := openlistplus.PreparePut(ctx, d, dstDir, file)
 	if err != nil {
 		return nil, err
 	}
-	if info != nil {
-		info.Name = sourceName
-		info.Size = sourceSize
+	if prepared.Handled {
+		return prepared.Obj, nil
 	}
-	casObj, err := d.uploadCAS(ctx, dstDir, info)
-	if err != nil {
+	stream := prepared.Stream
+	if err = d.newUpload(ctx, dstDir, stream, up); err != nil {
 		return nil, err
 	}
-	if casObj != nil && d.shouldDeleteSource() {
-		if err = d.deleteSource(ctx, dstDir, info); err != nil {
-			return nil, err
-		}
-		return casObj, nil
+	uploadedObj := &model.Object{
+		Name:     stream.GetName(),
+		Size:     stream.GetSize(),
+		Modified: time.Now(),
+		Ctime:    time.Now(),
 	}
-	srcObj, err := d.findFileByName(dstDir.GetID(), sourceName)
-	if err == nil {
-		return srcObj, nil
-	}
-	if casObj != nil {
-		return casObj, nil
-	}
-	return nil, nil
+	return openlistplus.FinishPut(ctx, d, dstDir, prepared, uploadedObj)
 }
 
 func (d *Cloud189) GetDetails(ctx context.Context) (*model.StorageDetails, error) {

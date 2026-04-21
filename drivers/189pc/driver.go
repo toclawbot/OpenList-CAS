@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/drivers/base"
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
+	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
 	"github.com/OpenListTeam/OpenList/v4/pkg/cron"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	"github.com/go-resty/resty/v2"
@@ -38,7 +38,6 @@ type Cloud189PC struct {
 	storageConfig driver.Config
 	ref           *Cloud189PC
 	cron          *cron.Cron
-	autoRestoreInFlight sync.Map
 }
 
 func (y *Cloud189PC) Config() driver.Config {
@@ -50,6 +49,10 @@ func (y *Cloud189PC) Config() driver.Config {
 
 func (y *Cloud189PC) GetAddition() driver.Additional {
 	return &y.Addition
+}
+
+func (y *Cloud189PC) OpenListPlusAddition() *openlistplus.Addition {
+	return &y.Addition.Addition
 }
 
 func (y *Cloud189PC) Init(ctx context.Context) (err error) {
@@ -126,10 +129,10 @@ func (y *Cloud189PC) Init(ctx context.Context) (err error) {
 			utils.Log.Errorf("cleanFamilyTransferFolderError:%s", err)
 		}
 	})
-	if err := y.startAutoRestoreExistingCAS(); err != nil {
+	if err != nil {
 		return err
 	}
-	return err
+	return openlistplus.StartAutoRestoreExistingCAS(ctx, y)
 }
 
 func (d *Cloud189PC) InitReference(storage driver.Driver) error {
@@ -142,12 +145,12 @@ func (d *Cloud189PC) InitReference(storage driver.Driver) error {
 }
 
 func (y *Cloud189PC) Drop(ctx context.Context) error {
+	openlistplus.StopAutoRestoreExistingCAS(y)
 	y.ref = nil
 	if y.cron != nil {
 		y.cron.Stop()
 		y.cron = nil
 	}
-	removeAutoRestoreWatcher(y)
 	return nil
 }
 
@@ -332,51 +335,22 @@ func (y *Cloud189PC) Remove(ctx context.Context, obj model.Obj) error {
 	return y.WaitBatchTask("DELETE", resp.TaskID, time.Millisecond*200)
 }
 
-func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
-	if y.shouldRestoreSourceFromCAS(stream.GetName()) {
-		obj, err := y.restoreSourceFromCAS(ctx, dstDir, stream)
-		if err != nil {
-			return nil, err
-		}
-		if up != nil {
-			up(100)
-		}
-		return obj, nil
-	}
-
-	targetDir := dstDir
-	sourceName := stream.GetName()
-	sourceSize := stream.GetSize()
-
-	newObj, info, err := y.uploadFile(ctx, dstDir, stream, up)
+func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (newObj model.Obj, err error) {
+	prepared, err := openlistplus.PreparePut(ctx, y, dstDir, stream)
 	if err != nil {
 		return nil, err
 	}
-	if info != nil {
-		info.Name = sourceName
-		info.Size = sourceSize
+	if prepared.Handled {
+		return prepared.Obj, nil
 	}
-	casObj, err := y.uploadCAS(ctx, targetDir, info)
-	if err != nil {
-		return nil, err
-	}
-	if casObj != nil && y.shouldDeleteSource() {
-		if err = y.deleteSource(ctx, targetDir, newObj, info); err != nil {
-			return nil, err
-		}
-		return casObj, nil
-	}
-	return newObj, nil
-}
-
-func (y *Cloud189PC) uploadFile(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (newObj model.Obj, info *casUploadInfo, err error) {
+	stream = prepared.Stream
 	overwrite := true
 	isFamily := y.isFamily()
 
 	// 响应时间长,按需启用
 	if y.Addition.RapidUpload && !stream.IsForceStreamUpload() {
-		if newObj, info, err := y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {
-			return newObj, info, nil
+		if newObj, err = y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {
+			return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
 		}
 	}
 
@@ -387,7 +361,11 @@ func (y *Cloud189PC) uploadFile(ctx context.Context, dstDir model.Obj, stream mo
 
 	// 旧版上传家庭云也有限制
 	if uploadMethod == "old" {
-		return y.OldUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		newObj, err = y.OldUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		if err != nil {
+			return nil, err
+		}
+		return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
 	}
 
 	// 开启家庭云转存
@@ -443,15 +421,20 @@ func (y *Cloud189PC) uploadFile(ctx context.Context, dstDir model.Obj, stream mo
 
 	switch uploadMethod {
 	case "rapid":
-		return y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		newObj, err = y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
 	case "stream":
 		if stream.GetSize() == 0 {
-			return y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+			newObj, err = y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+			break
 		}
 		fallthrough
 	default:
-		return y.StreamUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		newObj, err = y.StreamUpload(ctx, dstDir, stream, up, isFamily, overwrite)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
 }
 
 func (y *Cloud189PC) GetDetails(ctx context.Context) (*model.StorageDetails, error) {
