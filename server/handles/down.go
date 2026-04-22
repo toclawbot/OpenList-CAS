@@ -1,11 +1,8 @@
 package handles
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	stdpath "path"
-	"strconv"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
@@ -13,13 +10,12 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/fs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
 	"github.com/OpenListTeam/OpenList/v4/internal/net"
+	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
 	"github.com/OpenListTeam/OpenList/v4/internal/setting"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	"github.com/OpenListTeam/OpenList/v4/server/common"
 	"github.com/gin-gonic/gin"
-	"github.com/microcosm-cc/bluemonday"
 	log "github.com/sirupsen/logrus"
-	"github.com/yuin/goldmark"
 )
 
 func Down(c *gin.Context) {
@@ -29,6 +25,26 @@ func Down(c *gin.Context) {
 	if err != nil {
 		common.ErrorPage(c, err, 500)
 		return
+	}
+	if openlistplus.CanPreviewCAS(storage, filename) {
+		link, file, _, previewErr := openlistplus.ResolveCASPreviewLinkByMountPath(c.Request.Context(), rawPath, model.LinkArgs{
+			IP:       c.ClientIP(),
+			Header:   c.Request.Header,
+			Type:     c.Query("type"),
+			Redirect: true,
+		})
+		if previewErr != nil {
+			common.ErrorPage(c, previewErr, 500)
+			return
+		}
+		if link != nil && file != nil {
+			if common.ShouldProxy(storage, file.GetName()) {
+				proxy(c, link, file, storage.GetStorage().ProxyRange)
+			} else {
+				redirect(c, link)
+			}
+			return
+		}
 	}
 	if common.ShouldProxy(storage, filename) {
 		Proxy(c)
@@ -55,6 +71,20 @@ func Proxy(c *gin.Context) {
 	if err != nil {
 		common.ErrorPage(c, err, 500)
 		return
+	}
+	if openlistplus.CanPreviewCAS(storage, filename) {
+		link, file, _, previewErr := openlistplus.ResolveCASPreviewLinkByMountPath(c.Request.Context(), rawPath, model.LinkArgs{
+			Header: c.Request.Header,
+			Type:   c.Query("type"),
+		})
+		if previewErr != nil {
+			common.ErrorPage(c, previewErr, 500)
+			return
+		}
+		if link != nil && file != nil {
+			proxy(c, link, file, storage.GetStorage().ProxyRange)
+			return
+		}
 	}
 	if canProxy(storage, filename) {
 		if _, ok := c.GetQuery("d"); !ok {
@@ -115,33 +145,7 @@ func proxy(c *gin.Context, link *model.Link, file model.Obj, proxyRange bool) {
 		link = common.ProxyRange(c, link, file.GetSize())
 	}
 	Writer := &common.WrittenResponseWriter{ResponseWriter: c.Writer}
-	raw, _ := strconv.ParseBool(c.DefaultQuery("raw", "false"))
-	if utils.Ext(file.GetName()) == "md" && setting.GetBool(conf.FilterReadMeScripts) && !raw {
-		buf := bytes.NewBuffer(make([]byte, 0, file.GetSize()))
-		w := &common.InterceptResponseWriter{ResponseWriter: Writer, Writer: buf}
-		err = common.Proxy(w, c.Request, link, file)
-		if err == nil && buf.Len() > 0 {
-			if c.Writer.Status() < 200 || c.Writer.Status() > 300 {
-				c.Writer.Write(buf.Bytes())
-				return
-			}
-
-			var html bytes.Buffer
-			if err = goldmark.Convert(buf.Bytes(), &html); err != nil {
-				err = fmt.Errorf("markdown conversion failed: %w", err)
-			} else {
-				buf.Reset()
-				err = bluemonday.UGCPolicy().SanitizeReaderToWriter(&html, buf)
-				if err == nil {
-					Writer.Header().Set("Content-Length", strconv.FormatInt(int64(buf.Len()), 10))
-					Writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-					_, err = utils.CopyWithBuffer(Writer, buf)
-				}
-			}
-		}
-	} else {
-		err = common.Proxy(Writer, c.Request, link, file)
-	}
+	err = common.Proxy(Writer, c.Request, link, file)
 	if err == nil {
 		return
 	}

@@ -39,13 +39,7 @@ func start() {
 		Args: args,
 		Env:  os.Environ(),
 	}
-	currentDir, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-
-	logFile := filepath.Join(currentDir, "start.log")
-	stdout, err := os.OpenFile(logFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	stdout, err := os.OpenFile(filepath.Join(filepath.Dir(pidFile), "start.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
 		log.Fatal(os.Getpid(), ": failed to open start log file:", err)
 	}
