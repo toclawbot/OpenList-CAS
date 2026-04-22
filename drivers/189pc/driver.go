@@ -352,7 +352,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 	// 响应时间长,按需启用
 	if y.Addition.RapidUpload && !stream.IsForceStreamUpload() {
 		if newObj, info, err = y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {
-			if prepared.CAS == nil {
+			if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(y, stream.GetName()) {
 				prepared.CAS = info
 			}
 			return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
@@ -370,7 +370,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		if err != nil {
 			return nil, err
 		}
-		if prepared.CAS == nil {
+		if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(y, stream.GetName()) {
 			prepared.CAS = info
 		}
 		return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
@@ -442,7 +442,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 	if err != nil {
 		return nil, err
 	}
-	if prepared.CAS == nil {
+	if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(y, stream.GetName()) {
 		prepared.CAS = info
 	}
 	return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)

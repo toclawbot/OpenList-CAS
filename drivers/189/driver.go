@@ -213,7 +213,7 @@ func (d *Cloud189) Put(ctx context.Context, dstDir model.Obj, file model.FileStr
 	if err != nil {
 		return nil, err
 	}
-	if prepared.CAS == nil {
+	if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(d, stream.GetName()) {
 		prepared.CAS = info
 	}
 	uploadedObj := &model.Object{

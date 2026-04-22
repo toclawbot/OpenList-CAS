@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func New(name string, size int64, md5, sliceMD5 string) *Info {
 		Size:       size,
 		MD5:        strings.ToLower(md5),
 		SliceMD5:   strings.ToLower(sliceMD5),
-		CreateTime: time.Now().Format(time.RFC3339),
+		CreateTime: strconv.FormatInt(time.Now().Unix(), 10),
 	}
 }
 
