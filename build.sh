@@ -2,14 +2,12 @@ set -e
 appName="openlist"
 builtAt="$(date +'%F %T %z')"
 gitAuthor="The OpenList Projects Contributors <noreply@openlist.team>"
-
-HasGitRepo() {
-  git rev-parse --is-inside-work-tree >/dev/null 2>&1
-}
-
-gitCommit="unknown"
-if HasGitRepo; then
-  gitCommit=$(git log --pretty=format:"%h" -1 2>/dev/null || echo "unknown")
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  hasGitRepo=true
+  gitCommit=$(git log --pretty=format:"%h" -1)
+else
+  hasGitRepo=false
+  gitCommit="${GIT_COMMIT_OVERRIDE:-unknown}"
 fi
 
 # Set frontend repository, default to OpenListTeam/OpenList-Frontend
@@ -33,12 +31,12 @@ elif [ "$1" = "beta" ]; then
   version="beta"
   webVersion="rolling"
 else
-  if HasGitRepo; then
+  if [ "$hasGitRepo" = true ]; then
     git tag -d beta || true
     # Always true if there's no tag
-    version=$(git describe --abbrev=0 --tags 2>/dev/null || echo "v0.0.0")
+    version=$(git describe --abbrev=0 --tags 2>/dev/null || echo "${VERSION_OVERRIDE:-v0.0.0}")
   else
-    version="v0.0.0"
+    version="${VERSION_OVERRIDE:-v4.2.1}"
   fi
   webVersion=$(eval "curl -fsSL --max-time 2 $githubAuthArgs \"https://api.github.com/repos/$frontendRepo/releases/latest\"" | grep "tag_name" | head -n 1 | awk -F ":" '{print $2}' | sed 's/\"//g;s/,//g;s/ //g')
 fi
@@ -109,6 +107,13 @@ AssertStaticBinary() {
 }
 
 FetchWebRolling() {
+  if [ -f "public/dist.tar.gz" ]; then
+    echo "using bundled frontend archive: public/dist.tar.gz"
+    rm -rf public/dist
+    tar -zxvf public/dist.tar.gz -C public
+    return
+  fi
+
   pre_release_json=$(eval "curl -fsSL --max-time 2 $githubAuthArgs -H \"Accept: application/vnd.github.v3+json\" \"https://api.github.com/repos/$frontendRepo/releases/tags/rolling\"")
   pre_release_assets=$(echo "$pre_release_json" | jq -r '.assets[].browser_download_url')
   
@@ -122,6 +127,13 @@ FetchWebRolling() {
 }
 
 FetchWebRelease() {
+  if [ -f "public/dist.tar.gz" ]; then
+    echo "using bundled frontend archive: public/dist.tar.gz"
+    rm -rf public/dist
+    tar -zxvf public/dist.tar.gz -C public
+    return
+  fi
+
   release_json=$(eval "curl -fsSL --max-time 2 $githubAuthArgs -H \"Accept: application/vnd.github.v3+json\" \"https://api.github.com/repos/$frontendRepo/releases/latest\"")
   release_assets=$(echo "$release_json" | jq -r '.assets[].browser_download_url')
   
@@ -655,7 +667,11 @@ for arg in "$@"; do
 done
 
 if [ "$buildType" = "dev" ]; then
-  FetchWebRolling
+  if [ -d "public/dist" ] && [ "$(ls -A public/dist 2>/dev/null)" ]; then
+    echo "public/dist already exists, skipping FetchWebRolling"
+  else
+    FetchWebRolling
+  fi
   if [ "$dockerType" = "docker" ]; then
     BuildDocker
   elif [ "$dockerType" = "docker-multiplatform" ]; then

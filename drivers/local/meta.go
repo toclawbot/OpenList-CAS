@@ -2,7 +2,6 @@ package local
 
 import (
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
-	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
 	"github.com/OpenListTeam/OpenList/v4/internal/op"
 )
 
@@ -16,15 +15,9 @@ type Addition struct {
 	ShowHidden       bool   `json:"show_hidden" default:"true" required:"false" help:"show hidden directories and files"`
 	MkdirPerm        string `json:"mkdir_perm" default:"777"`
 	RecycleBinPath   string `json:"recycle_bin_path" default:"delete permanently" help:"path to recycle bin, delete permanently if empty or keep 'delete permanently'"`
-	GenerateCAS      bool   `json:"generate_cas" help:"Generate a .cas file after uploading a normal file"`
-	DeleteSource     bool   `json:"delete_source" help:"Delete the source file after generating the .cas file"`
-}
-
-func (a *Addition) OpenListPlusAddition() *openlistplus.Addition {
-	return &openlistplus.Addition{
-		GenerateCAS:  a.GenerateCAS,
-		DeleteSource: a.DeleteSource,
-	}
+	GenerateCAS      bool   `json:"generate_cas" help:"上传文件后，在同目录生成一个同名的 .cas 元数据文件"`
+	DeleteSource     bool   `json:"delete_source" help:"成功生成 .cas 文件后，自动删除原始源文件"`
+	GenerateCASAndDeleteSource bool `json:"generate_cas_and_delete_source" ignore:"true"`
 }
 
 var config = driver.Config{
