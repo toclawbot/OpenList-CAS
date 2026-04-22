@@ -34,6 +34,7 @@ type Bridge interface {
 
 type Handler struct {
 	StorageName      string
+	SkipPrepareCAS   bool
 	ChunkSize        func(storage driver.Driver, size int64) int64
 	WriteCAS         func(ctx context.Context, storage driver.Driver, dstDir model.Obj, info *casfile.Info) (model.Obj, error)
 	DeleteSource     func(ctx context.Context, storage driver.Driver, dstDir model.Obj, uploadedObj model.Obj, sourceName string) error

@@ -209,8 +209,12 @@ func (d *Cloud189) Put(ctx context.Context, dstDir model.Obj, file model.FileStr
 		return prepared.Obj, nil
 	}
 	stream := prepared.Stream
-	if err = d.newUpload(ctx, dstDir, stream, up); err != nil {
+	info, err := d.newUpload(ctx, dstDir, stream, up)
+	if err != nil {
 		return nil, err
+	}
+	if prepared.CAS == nil {
+		prepared.CAS = info
 	}
 	uploadedObj := &model.Object{
 		Name:     stream.GetName(),

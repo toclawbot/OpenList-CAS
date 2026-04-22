@@ -11,9 +11,10 @@ import (
 
 func init() {
 	core.RegisterHook()
-	for _, storageName := range []string{"189Cloud", "189CloudPC", "Local"} {
+	register := func(storageName string, skipPrepareCAS bool) {
 		core.RegisterHandler(core.Handler{
-			StorageName: storageName,
+			StorageName:    storageName,
+			SkipPrepareCAS: skipPrepareCAS,
 			ChunkSize: func(storage driver.Driver, size int64) int64 {
 				bridge, ok := storage.(core.Bridge)
 				if !ok {
@@ -41,4 +42,7 @@ func init() {
 			},
 		})
 	}
+	register("189Cloud", true)
+	register("189CloudPC", true)
+	register("Local", false)
 }

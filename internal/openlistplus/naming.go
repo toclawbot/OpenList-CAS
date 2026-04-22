@@ -37,7 +37,10 @@ func BuildPreviewRestoreCASName(casFileName string, info *casfile.Info, useCurre
 }
 
 func ResolveRestoreName(casFileName string, info *casfile.Info, useCurrentName bool) string {
-	if info == nil || !useCurrentName {
+	if info == nil {
+		return TrimCASSuffix(casFileName)
+	}
+	if !useCurrentName {
 		return info.Name
 	}
 	currentName := TrimCASSuffix(casFileName)

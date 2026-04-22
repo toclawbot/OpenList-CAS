@@ -13,6 +13,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
 	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
+	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus/casfile"
 	"github.com/OpenListTeam/OpenList/v4/pkg/cron"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	"github.com/go-resty/resty/v2"
@@ -346,10 +347,14 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 	stream = prepared.Stream
 	overwrite := true
 	isFamily := y.isFamily()
+	var info *casfile.Info
 
 	// 响应时间长,按需启用
 	if y.Addition.RapidUpload && !stream.IsForceStreamUpload() {
-		if newObj, err = y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {
+		if newObj, info, err = y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {
+			if prepared.CAS == nil {
+				prepared.CAS = info
+			}
 			return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
 		}
 	}
@@ -361,9 +366,12 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 
 	// 旧版上传家庭云也有限制
 	if uploadMethod == "old" {
-		newObj, err = y.OldUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		newObj, info, err = y.OldUpload(ctx, dstDir, stream, up, isFamily, overwrite)
 		if err != nil {
 			return nil, err
+		}
+		if prepared.CAS == nil {
+			prepared.CAS = info
 		}
 		return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
 	}
@@ -421,18 +429,21 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 
 	switch uploadMethod {
 	case "rapid":
-		newObj, err = y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		newObj, info, err = y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
 	case "stream":
 		if stream.GetSize() == 0 {
-			newObj, err = y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+			newObj, info, err = y.FastUpload(ctx, dstDir, stream, up, isFamily, overwrite)
 			break
 		}
 		fallthrough
 	default:
-		newObj, err = y.StreamUpload(ctx, dstDir, stream, up, isFamily, overwrite)
+		newObj, info, err = y.StreamUpload(ctx, dstDir, stream, up, isFamily, overwrite)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if prepared.CAS == nil {
+		prepared.CAS = info
 	}
 	return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
 }

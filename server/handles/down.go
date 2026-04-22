@@ -3,6 +3,7 @@ package handles
 import (
 	"errors"
 	stdpath "path"
+	"strings"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
@@ -26,7 +27,7 @@ func Down(c *gin.Context) {
 		common.ErrorPage(c, err, 500)
 		return
 	}
-	if openlistplus.CanPreviewCAS(storage, filename) {
+	if shouldPreviewCASOnDown(c) && openlistplus.CanPreviewCAS(storage, filename) {
 		link, file, _, previewErr := openlistplus.ResolveCASPreviewLinkByMountPath(c.Request.Context(), rawPath, model.LinkArgs{
 			IP:       c.ClientIP(),
 			Header:   c.Request.Header,
@@ -62,6 +63,21 @@ func Down(c *gin.Context) {
 		}
 		redirect(c, link)
 	}
+}
+
+func shouldPreviewCASOnDown(c *gin.Context) bool {
+	if c.Query("type") != "" {
+		return true
+	}
+	if c.GetHeader("Range") != "" {
+		return true
+	}
+	switch strings.ToLower(c.GetHeader("Sec-Fetch-Dest")) {
+	case "video", "audio":
+		return true
+	}
+	accept := strings.ToLower(c.GetHeader("Accept"))
+	return strings.Contains(accept, "video/") || strings.Contains(accept, "audio/")
 }
 
 func Proxy(c *gin.Context) {

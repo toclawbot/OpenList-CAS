@@ -44,7 +44,7 @@ func (d *Cloud189) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj, i
 		Reader:   strings.NewReader(body),
 		Mimetype: "text/plain",
 	}
-	if err = d.newUpload(ctx, dstDir, file, nil); err != nil {
+	if _, err = d.newUpload(ctx, dstDir, file, nil); err != nil {
 		return nil, err
 	}
 	return &model.Object{Name: name, Size: int64(len(body)), Modified: now, Ctime: now}, nil

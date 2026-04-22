@@ -41,7 +41,7 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 		Reader:   strings.NewReader(body),
 		Mimetype: "text/plain",
 	}
-	obj, err := y.StreamUpload(ctx, dstDir, file, nil, y.isFamily(), true)
+	obj, _, err := y.StreamUpload(ctx, dstDir, file, nil, y.isFamily(), true)
 	if err != nil {
 		return nil, err
 	}

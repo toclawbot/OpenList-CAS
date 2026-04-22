@@ -34,6 +34,9 @@ func PreparePut(ctx context.Context, storage driver.Driver, dstDir model.Obj, st
 	if !ok {
 		return prepared, nil
 	}
+	if handler.SkipPrepareCAS {
+		return prepared, nil
+	}
 	chunkSize := int64(0)
 	if handler.ChunkSize != nil {
 		chunkSize = handler.ChunkSize(storage, stream.GetSize())
