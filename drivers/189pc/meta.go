@@ -17,7 +17,6 @@ type Addition struct {
 	OrderDirection string `json:"order_direction" type:"select" options:"asc,desc" default:"asc"`
 	Type           string `json:"type" type:"select" options:"personal,family" default:"personal"`
 	FamilyID       string `json:"family_id"`
-	PreviewRestoreFamilyID string `json:"preview_restore_family_id" help:"Leave empty to restore preview files into personal space /TEMP; fill a family id to restore them into that family space /TEMP"`
 	UploadMethod   string `json:"upload_method" type:"select" options:"stream,rapid,old" default:"stream"`
 	UploadThread   string `json:"upload_thread" default:"3" help:"1<=thread<=32"`
 	FamilyTransfer bool   `json:"family_transfer"`

@@ -27,7 +27,7 @@ env:
   DOCKERHUB_ORG_NAME: ${{ vars.DOCKERHUB_ORG_NAME || 'openlistteam' }}
   GHCR_ORG_NAME: ${{ vars.GHCR_ORG_NAME || 'openlistteam' }}
   IMAGE_NAME: openlist-git
-  IMAGE_NAME_DOCKERHUB: ${{ vars.IMAGE_NAME_DOCKERHUB || 'openlist' }}
+  IMAGE_NAME_DOCKERHUB: openlist
   REGISTRY: ghcr.io
   ARTIFACT_NAME: 'binaries_docker_release'
   ARTIFACT_NAME_LITE: 'binaries_docker_release_lite'
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
@@ -146,7 +146,7 @@ jobs:
             tag_favor: "suffix=-aio,onlatest=true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
@@ -230,7 +230,7 @@ jobs:
             tag_favor: "suffix=-lite-aio,onlatest=true"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME_LITE }}

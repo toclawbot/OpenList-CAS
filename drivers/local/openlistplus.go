@@ -47,6 +47,25 @@ func (d *Local) OpenListPlusDeleteSourceAfterCAS(ctx context.Context, dstDir mod
 	return nil
 }
 
+func (d *Local) OpenListPlusDeletePermanently(ctx context.Context, obj model.Obj) error {
+	if obj == nil {
+		return nil
+	}
+	fullPath := obj.GetPath()
+	if fullPath == "" {
+		return errs.NotImplement
+	}
+	if err := os.Remove(fullPath); err != nil {
+		return err
+	}
+	dirPath := filepath.Dir(fullPath)
+	if d.directoryMap.Has(dirPath) {
+		d.directoryMap.UpdateDirSize(dirPath)
+		d.directoryMap.UpdateDirParents(dirPath)
+	}
+	return nil
+}
+
 func (d *Local) OpenListPlusRestoreFromCAS(ctx context.Context, dstDir model.Obj, casFileName string, info *casfile.Info) (model.Obj, error) {
 	return nil, errs.NotImplement
 }

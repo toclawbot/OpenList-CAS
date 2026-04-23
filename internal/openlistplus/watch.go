@@ -171,6 +171,10 @@ func restoreCASPath(ctx context.Context, storage driver.Driver, dirPath, casPath
 		return err
 	}
 	if ShouldDeleteCASAfterRestore(storage) {
+		handler, ok := handlerFor(storage)
+		if ok && handler.PermanentDelete != nil {
+			return handler.PermanentDelete(ctx, storage, casObj)
+		}
 		return op.Remove(ctx, storage, casPath)
 	}
 	return nil

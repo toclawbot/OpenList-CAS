@@ -18,7 +18,6 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/drivers/base"
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
-	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus/casfile"
 	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 	myrand "github.com/OpenListTeam/OpenList/v4/pkg/utils/random"
 	"github.com/go-resty/resty/v2"
@@ -305,10 +304,10 @@ func (d *Cloud189) uploadRequest(uri string, form map[string]string, resp interf
 	return data, nil
 }
 
-func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (*casfile.Info, error) {
+func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
 	sessionKey, err := d.getSessionKey()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	d.sessionKey = sessionKey
 	const DEFAULT int64 = 10485760
@@ -322,7 +321,7 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 		"lazyCheck":      "1",
 	}, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	uploadFileId := jsoniter.Get(res, "data", "uploadFileId").ToString()
 	//_, err = d.uploadRequest("/person/getUploadedPartsInfo", map[string]string{
@@ -335,7 +334,7 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 	md5Sum := md5.New()
 	for i = 1; i <= count; i++ {
 		if utils.IsCanceled(ctx) {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 		byteSize = file.GetSize() - finish
 		if DEFAULT < byteSize {
@@ -346,7 +345,7 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 		n, err := io.ReadFull(file, byteData)
 		// log.Debug(err, n)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		finish += int64(n)
 		md5Bytes := getMd5(byteData)
@@ -360,7 +359,7 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 			"uploadFileId": uploadFileId,
 		}, &resp)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		uploadData := resp.UploadUrls["partNumber_"+strconv.FormatInt(i, 10)]
 		log.Debugf("uploadData: %+v", uploadData)
@@ -368,7 +367,7 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 		uploadHeaders := strings.Split(decodeURIComponent(uploadData.RequestHeader), "&")
 		req, err := http.NewRequestWithContext(ctx, http.MethodPut, requestURL, driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData)))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		for _, v := range uploadHeaders {
 			i := strings.Index(v, "=")
@@ -376,13 +375,11 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 		}
 		r, err := base.HttpClient.Do(req)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		log.Debugf("%+v %+v", r, r.Request.Header)
 		_ = r.Body.Close()
-		if up != nil {
-			up(float64(i) * 100 / float64(count))
-		}
+		up(float64(i) * 100 / float64(count))
 	}
 	fileMd5 := hex.EncodeToString(md5Sum.Sum(nil))
 	sliceMd5 := fileMd5
@@ -396,10 +393,7 @@ func (d *Cloud189) newUpload(ctx context.Context, dstDir model.Obj, file model.F
 		"lazyCheck":    "1",
 		"opertype":     "3",
 	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	return casfile.New(file.GetName(), file.GetSize(), fileMd5, sliceMd5), nil
+	return err
 }
 
 func (d *Cloud189) getCapacityInfo(ctx context.Context) (*CapacityResp, error) {

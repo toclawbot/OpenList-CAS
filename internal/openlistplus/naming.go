@@ -1,13 +1,17 @@
 package openlistplus
 
 import (
+	"crypto/rand"
+	"fmt"
+	"math/big"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus/casfile"
 )
 
-const previewRestorePrefix = "preview__"
+const previewRestorePrefix = "TEMP_"
 
 func BuildCASName(sourceName string) string {
 	return sourceName + ".cas"
@@ -29,11 +33,11 @@ func HasPreviewRestorePrefix(name string) bool {
 }
 
 func BuildPreviewRestoreName(casFileName string, info *casfile.Info, useCurrentName bool) string {
-	return previewRestorePrefix + ResolveRestoreName(casFileName, info, useCurrentName)
+	return fmt.Sprintf("%s%05d_%s", previewRestorePrefix, randomPreviewRestoreCode(), ResolveRestoreName(casFileName, info, useCurrentName))
 }
 
-func BuildPreviewRestoreCASName(casFileName string, info *casfile.Info, useCurrentName bool) string {
-	return BuildPreviewRestoreName(casFileName, info, useCurrentName) + ".cas"
+func BuildPreviewRestoreCASName(restoredName string) string {
+	return restoredName + ".cas"
 }
 
 func ResolveRestoreName(casFileName string, info *casfile.Info, useCurrentName bool) string {
@@ -64,4 +68,12 @@ func normalizedSourceExtension(name string) string {
 		return ""
 	}
 	return ext
+}
+
+func randomPreviewRestoreCode() int64 {
+	n, err := rand.Int(rand.Reader, big.NewInt(100000))
+	if err == nil {
+		return n.Int64()
+	}
+	return time.Now().UnixNano() % 100000
 }

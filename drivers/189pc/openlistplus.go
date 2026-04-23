@@ -53,13 +53,20 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 
 func (y *Cloud189PC) OpenListPlusDeleteSourceAfterCAS(ctx context.Context, dstDir model.Obj, uploadedObj model.Obj, sourceName string) error {
 	if uploadedObj != nil {
-		return y.Remove(ctx, uploadedObj)
+		return y.OpenListPlusDeletePermanently(ctx, uploadedObj)
 	}
 	obj, err := y.findFileByName(ctx, sourceName, dstDir.GetID(), y.isFamily())
 	if err != nil {
 		return err
 	}
-	return y.Remove(ctx, obj)
+	return y.OpenListPlusDeletePermanently(ctx, obj)
+}
+
+func (y *Cloud189PC) OpenListPlusDeletePermanently(ctx context.Context, obj model.Obj) error {
+	if obj == nil {
+		return nil
+	}
+	return y.Delete(ctx, IF(y.isFamily(), y.FamilyID, ""), model.UnwrapObjName(obj))
 }
 
 func (y *Cloud189PC) OpenListPlusRestoreFromCAS(ctx context.Context, dstDir model.Obj, casFileName string, info *casfile.Info) (model.Obj, error) {
@@ -141,22 +148,21 @@ func (y *Cloud189PC) OpenListPlusPreviewTarget(ctx context.Context, casFileName 
 }
 
 func (y *Cloud189PC) OpenListPlusDeletePreviewRestoredPermanently(ctx context.Context, obj model.Obj) error {
-	return y.Delete(ctx, IF(y.isFamily(), y.FamilyID, ""), model.UnwrapObjName(obj))
+	return y.OpenListPlusDeletePermanently(ctx, obj)
 }
 
 func (y *Cloud189PC) openListPlusPreviewStorage() *Cloud189PC {
 	target := *y
 	target.ref = y
 	target.cron = nil
-	familyID := strings.TrimSpace(y.Addition.PreviewRestoreFamilyID)
-	if familyID == "" {
-		target.Type = "personal"
-		target.FamilyID = ""
-		target.RootFolderID = "-11"
+	if y.isFamily() || y.FamilyTransfer {
+		target.Type = "family"
+		target.FamilyID = y.FamilyID
+		target.RootFolderID = ""
 		return &target
 	}
-	target.Type = "family"
-	target.FamilyID = familyID
-	target.RootFolderID = ""
+	target.Type = "personal"
+	target.FamilyID = ""
+	target.RootFolderID = "-11"
 	return &target
 }

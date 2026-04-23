@@ -47,8 +47,7 @@ func ShouldDeleteCASAfterRestore(storage driver.Driver) bool {
 }
 
 func ShouldUseCurrentRestoreName(storage driver.Driver) bool {
-	addition := GetAddition(storage)
-	return addition != nil && addition.RestoreSourceUseCurrentName
+	return true
 }
 
 func ShouldAutoRestore(storage driver.Driver) bool {

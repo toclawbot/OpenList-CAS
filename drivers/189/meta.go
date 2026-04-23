@@ -2,7 +2,6 @@ package _189
 
 import (
 	"github.com/OpenListTeam/OpenList/v4/internal/driver"
-	"github.com/OpenListTeam/OpenList/v4/internal/openlistplus"
 	"github.com/OpenListTeam/OpenList/v4/internal/op"
 )
 
@@ -11,11 +10,6 @@ type Addition struct {
 	Password string `json:"password" required:"true"`
 	Cookie   string `json:"cookie" help:"Fill in the cookie if need captcha"`
 	driver.RootID
-	openlistplus.Addition
-}
-
-func (a *Addition) OpenListPlusAddition() *openlistplus.Addition {
-	return &a.Addition
 }
 
 var config = driver.Config{

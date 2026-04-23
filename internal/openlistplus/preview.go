@@ -22,7 +22,7 @@ func CanPreviewCAS(storage driver.Driver, name string) bool {
 		return false
 	}
 	switch storage.Config().Name {
-	case "189Cloud", "189CloudPC":
+	case "189CloudPC":
 		return true
 	default:
 		return false
@@ -78,7 +78,7 @@ func ResolveCASPreviewLinkByMountPath(ctx context.Context, mountPath string, arg
 	case err == nil:
 		shouldDeleteNow = strings.HasPrefix(restoredName, previewRestorePrefix)
 	case errs.IsObjectNotFound(err):
-		previewCASName := BuildPreviewRestoreCASName(obj.GetName(), info, ShouldUseCurrentRestoreName(storage))
+		previewCASName := BuildPreviewRestoreCASName(restoredName)
 		if _, err = RestoreFromCAS(ctx, targetStorage, dstDir, previewCASName, info); err != nil {
 			return nil, nil, "", err
 		}

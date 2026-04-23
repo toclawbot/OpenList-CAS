@@ -345,17 +345,26 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		return prepared.Obj, nil
 	}
 	stream = prepared.Stream
+	targetDir := dstDir
+	sourceName := stream.GetName()
+	sourceSize := stream.GetSize()
 	overwrite := true
 	isFamily := y.isFamily()
 	var info *casfile.Info
+	var familyTransferUploadedObj model.Obj
+	familyTransferEnabled := false
 
 	// 响应时间长,按需启用
 	if y.Addition.RapidUpload && !stream.IsForceStreamUpload() {
 		if newObj, info, err = y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {
+			if info != nil {
+				info.Name = sourceName
+				info.Size = sourceSize
+			}
 			if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(y, stream.GetName()) {
 				prepared.CAS = info
 			}
-			return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
+			return openlistplus.FinishPut(ctx, y, targetDir, prepared, newObj)
 		}
 	}
 
@@ -370,14 +379,19 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		if err != nil {
 			return nil, err
 		}
+		if info != nil {
+			info.Name = sourceName
+			info.Size = sourceSize
+		}
 		if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(y, stream.GetName()) {
 			prepared.CAS = info
 		}
-		return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
+		return openlistplus.FinishPut(ctx, y, targetDir, prepared, newObj)
 	}
 
 	// 开启家庭云转存
 	if !isFamily && y.FamilyTransfer {
+		familyTransferEnabled = true
 		// 修改上传目标为家庭云文件夹
 		transferDstDir := dstDir
 		dstDir = y.familyTransferFolder
@@ -394,11 +408,14 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		overwrite = false
 
 		defer func() {
-			if newObj != nil {
+			if familyTransferUploadedObj != nil {
 				// 转存家庭云文件到个人云
-				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, newObj, transferDstDir, true)
+				if openlistplus.ShouldDeleteSource(y) {
+					return
+				}
+				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, familyTransferUploadedObj, transferDstDir, true)
 				// 删除家庭云源文件
-				go y.Delete(context.TODO(), y.FamilyID, newObj)
+				go y.Delete(context.TODO(), y.FamilyID, familyTransferUploadedObj)
 				// 批量任务有概率删不掉
 				go y.cleanFamilyTransferFile()
 				// 转存失败返回错误
@@ -408,16 +425,20 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 
 				// 查找转存文件
 				var file *Cloud189File
-				file, err = y.findFileByName(context.TODO(), newObj.GetName(), transferDstDir.GetID(), false)
+				file, err = y.findFileByName(context.TODO(), familyTransferUploadedObj.GetName(), transferDstDir.GetID(), false)
 				if err != nil {
 					if err == errs.ObjectNotFound {
-						err = fmt.Errorf("unknown error: No transfer file obtained %s", newObj.GetName())
+						err = fmt.Errorf("unknown error: No transfer file obtained %s", familyTransferUploadedObj.GetName())
 					}
 					return
 				}
 
 				// 重命名转存文件
-				newObj, err = y.Rename(context.TODO(), file, srcName)
+				renamedObj, renameErr := y.Rename(context.TODO(), file, srcName)
+				if renameErr == nil {
+					newObj = renamedObj
+				}
+				err = renameErr
 				if err != nil {
 					// 重命名失败删除源文件
 					_ = y.Delete(context.TODO(), "", file)
@@ -442,10 +463,17 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 	if err != nil {
 		return nil, err
 	}
+	if familyTransferEnabled {
+		familyTransferUploadedObj = newObj
+	}
+	if info != nil {
+		info.Name = sourceName
+		info.Size = sourceSize
+	}
 	if prepared.CAS == nil && openlistplus.ShouldGenerateCAS(y, stream.GetName()) {
 		prepared.CAS = info
 	}
-	return openlistplus.FinishPut(ctx, y, dstDir, prepared, newObj)
+	return openlistplus.FinishPut(ctx, y, targetDir, prepared, newObj)
 }
 
 func (y *Cloud189PC) GetDetails(ctx context.Context) (*model.StorageDetails, error) {

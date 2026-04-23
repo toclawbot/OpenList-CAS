@@ -1,14 +1,12 @@
 package handles
 
 import (
-	"context"
 	"fmt"
 	stdpath "path"
 	"strings"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
-	"github.com/OpenListTeam/OpenList/v4/internal/driver"
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/fs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
@@ -117,9 +115,8 @@ func FsList(c *gin.Context, req *ListReq, user *model.User) {
 			directUploadTools = op.GetDirectUploadTools(storage)
 		}
 	}
-	storage, _ := fs.GetStorage(reqPath, &fs.GetStoragesArgs{})
 	common.SuccessResp(c, FsListResp{
-		Content:            toObjsResp(c.Request.Context(), objs, reqPath, isEncrypt(meta, reqPath), storage),
+		Content:            toObjsResp(objs, reqPath, isEncrypt(meta, reqPath)),
 		Total:              int64(total),
 		Readme:             getReadme(meta, reqPath),
 		Header:             getHeader(meta, reqPath),
@@ -229,7 +226,7 @@ func pagination(objs []model.Obj, req *model.PageReq) (int, []model.Obj) {
 	return total, objs[start:end]
 }
 
-func toObjsResp(_ context.Context, objs []model.Obj, parent string, encrypt bool, _ driver.Driver) []ObjResp {
+func toObjsResp(objs []model.Obj, parent string, encrypt bool) []ObjResp {
 	var resp []ObjResp
 	for _, obj := range objs {
 		thumb, _ := model.GetThumb(obj)
@@ -315,7 +312,7 @@ func FsGet(c *gin.Context, req *FsGetReq, user *model.User) {
 		provider = storage.Config().Name
 	}
 	typeName := obj.GetName()
-	if openlistplus.CanPreviewCAS(storage, obj.GetName()) {
+	if err == nil && openlistplus.CanPreviewCAS(storage, obj.GetName()) {
 		if previewName, previewErr := openlistplus.ResolveCASPreviewName(c.Request.Context(), storage, obj); previewErr == nil && previewName != "" {
 			typeName = previewName
 		}
@@ -326,9 +323,16 @@ func FsGet(c *gin.Context, req *FsGetReq, user *model.User) {
 			return
 		}
 		if storage.Config().MustProxy() || storage.GetStorage().WebProxy {
-			rawURL = buildObjectAccessURL(c, reqPath, isEncrypt(meta, reqPath), true)
+			rawURL = common.GenerateDownProxyURL(storage.GetStorage(), reqPath)
 			if rawURL == "" {
-				rawURL = buildObjectAccessURL(c, reqPath, isEncrypt(meta, reqPath), true)
+				query := ""
+				if isEncrypt(meta, reqPath) || setting.GetBool(conf.SignAll) {
+					query = "?sign=" + sign.Sign(reqPath)
+				}
+				rawURL = fmt.Sprintf("%s/p%s%s",
+					common.GetApiUrl(c),
+					utils.EncodePath(reqPath, true),
+					query)
 			}
 		} else if openlistplus.CanPreviewCAS(storage, obj.GetName()) {
 			rawURL = buildObjectAccessURL(c, reqPath, isEncrypt(meta, reqPath), common.ShouldProxy(storage, typeName))
@@ -379,7 +383,7 @@ func FsGet(c *gin.Context, req *FsGetReq, user *model.User) {
 		Readme:   getReadme(meta, reqPath),
 		Header:   getHeader(meta, reqPath),
 		Provider: provider,
-		Related:  toObjsResp(c.Request.Context(), related, parentPath, isEncrypt(parentMeta, parentPath), storage),
+		Related:  toObjsResp(related, parentPath, isEncrypt(parentMeta, parentPath)),
 	})
 }
 

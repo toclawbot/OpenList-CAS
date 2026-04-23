@@ -28,6 +28,9 @@ func init() {
 			DeleteSource: func(ctx context.Context, storage driver.Driver, dstDir model.Obj, uploadedObj model.Obj, sourceName string) error {
 				return storage.(core.Bridge).OpenListPlusDeleteSourceAfterCAS(ctx, dstDir, uploadedObj, sourceName)
 			},
+			PermanentDelete: func(ctx context.Context, storage driver.Driver, obj model.Obj) error {
+				return storage.(core.Bridge).OpenListPlusDeletePermanently(ctx, obj)
+			},
 			RestoreFromCAS: func(ctx context.Context, storage driver.Driver, dstDir model.Obj, casFileName string, info *casfile.Info) (model.Obj, error) {
 				return storage.(core.Bridge).OpenListPlusRestoreFromCAS(ctx, dstDir, casFileName, info)
 			},
@@ -42,7 +45,6 @@ func init() {
 			},
 		})
 	}
-	register("189Cloud", true)
 	register("189CloudPC", true)
 	register("Local", false)
 }

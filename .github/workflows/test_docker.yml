@@ -1,21 +1,31 @@
+name: Beta Release (Docker)
+
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-    # 加上忽略规则，避免纯文档修改触发 Docker 打包
     paths-ignore:
-      - 'README.md'
-      - '*.md'
-      - '.github/**'
+      - 'README*.md'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - 'LICENSE'
+      - 'docs/**'
   pull_request:
     branches:
       - main
-    # PR 也一样，纯文档 PR 不触发打包
     paths-ignore:
-      - 'README.md'
-      - '*.md'
-      - '.github/**'
+      - 'README*.md'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - 'LICENSE'
+      - 'docs/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -25,7 +35,7 @@ env:
   DOCKERHUB_ORG_NAME: ${{ vars.DOCKERHUB_ORG_NAME || 'openlistteam' }}
   GHCR_ORG_NAME: ${{ vars.GHCR_ORG_NAME || 'openlistteam' }}
   IMAGE_NAME: openlist-git
-  IMAGE_NAME_DOCKERHUB: ${{ vars.IMAGE_NAME_DOCKERHUB || 'openlist' }}
+  IMAGE_NAME_DOCKERHUB: openlist
   REGISTRY: ghcr.io
   ARTIFACT_NAME: 'binaries_docker_release'
   RELEASE_PLATFORMS: 'linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/ppc64le,linux/riscv64,linux/loong64' ### Temporarily disable Docker builds for linux/s390x architectures for unknown reasons.
