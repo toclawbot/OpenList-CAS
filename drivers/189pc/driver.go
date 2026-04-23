@@ -354,6 +354,54 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 	var familyTransferUploadedObj model.Obj
 	familyTransferEnabled := false
 
+	if !isFamily && y.FamilyTransfer {
+		familyTransferEnabled = true
+		transferDstDir := dstDir
+		dstDir = y.familyTransferFolder
+
+		srcName := stream.GetName()
+		stream = &WrapFileStreamer{
+			FileStreamer: stream,
+			Name:         fmt.Sprintf("0%s.transfer", uuid.NewString()),
+		}
+
+		isFamily = true
+		overwrite = false
+
+		defer func() {
+			if familyTransferUploadedObj != nil {
+				if openlistplus.ShouldDeleteSource(y) {
+					return
+				}
+				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, familyTransferUploadedObj, transferDstDir, true)
+				go y.Delete(context.TODO(), y.FamilyID, familyTransferUploadedObj)
+				go y.cleanFamilyTransferFile()
+				if err != nil {
+					return
+				}
+
+				var file *Cloud189File
+				file, err = y.findFileByName(context.TODO(), familyTransferUploadedObj.GetName(), transferDstDir.GetID(), false)
+				if err != nil {
+					if err == errs.ObjectNotFound {
+						err = fmt.Errorf("unknown error: No transfer file obtained %s", familyTransferUploadedObj.GetName())
+					}
+					return
+				}
+
+				renamedObj, renameErr := y.Rename(context.TODO(), file, srcName)
+				if renameErr == nil {
+					newObj = renamedObj
+				}
+				err = renameErr
+				if err != nil {
+					_ = y.Delete(context.TODO(), "", file)
+				}
+				return
+			}
+		}()
+	}
+
 	// 响应时间长,按需启用
 	if y.Addition.RapidUpload && !stream.IsForceStreamUpload() {
 		if newObj, info, err = y.RapidUpload(ctx, dstDir, stream, isFamily, overwrite); err == nil {

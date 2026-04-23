@@ -41,6 +41,29 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 		Reader:   strings.NewReader(body),
 		Mimetype: "text/plain",
 	}
+
+	if !y.isFamily() && y.FamilyTransfer {
+		familyObj, _, err := y.StreamUpload(ctx, y.familyTransferFolder, file, nil, true, false)
+		if err != nil {
+			return nil, err
+		}
+		if familyObj == nil {
+			familyObj = &model.Object{Name: name, Size: int64(len(body)), Modified: now, Ctime: now}
+		}
+		if err = y.SaveFamilyFileToPersonCloud(ctx, y.FamilyID, familyObj, dstDir, true); err != nil {
+			return nil, err
+		}
+		go y.Delete(context.TODO(), y.FamilyID, familyObj)
+		if y.cleanFamilyTransferFile != nil {
+			go y.cleanFamilyTransferFile()
+		}
+		obj, findErr := y.findFileByName(ctx, name, dstDir.GetID(), false)
+		if findErr == nil {
+			return obj, nil
+		}
+		return &model.Object{Name: name, Size: int64(len(body)), Modified: now, Ctime: now}, nil
+	}
+
 	obj, _, err := y.StreamUpload(ctx, dstDir, file, nil, y.isFamily(), true)
 	if err != nil {
 		return nil, err

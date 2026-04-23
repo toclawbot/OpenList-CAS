@@ -14,7 +14,7 @@ type Addition struct {
 	RestoreSourceFromCAS        bool   `json:"restore_source_from_cas" help:"Automatically restore the source file when handling a .cas file"`
 	DeleteCASAfterRestore       bool   `json:"delete_cas_after_restore" help:"Delete the .cas file after the source file is restored successfully"`
 	AutoRestoreExistingCAS      bool   `json:"auto_restore_existing_cas" help:"Automatically scan monitored directories and restore existing .cas files"`
-	AutoRestoreExistingCASPaths string `json:"auto_restore_existing_cas_paths" help:"Monitored directories for automatic .cas restore, one path per line; leave empty to disable monitoring"`
+	AutoRestoreExistingCASPaths string `json:"auto_restore_existing_cas_paths" type:"textarea" help:"Monitored directories for automatic .cas restore, one path per line; leave empty to disable monitoring"`
 }
 
 type AdditionProvider interface {
