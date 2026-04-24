@@ -939,7 +939,11 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 	}
 
 	// 尝试恢复进度
-	uploadProgress, ok := base.GetUploadProgress[*UploadProgress](y, y.getTokenInfo().SessionKey, fileMd5Hex)
+	sessionKey := y.getTokenInfo().SessionKey
+	if isFamily {
+		sessionKey = y.getTokenInfo().FamilySessionKey
+	}
+	uploadProgress, ok := base.GetUploadProgress[*UploadProgress](y, sessionKey, fileMd5Hex)
 	if !ok {
 		// step.2 预上传
 		params := Params{
@@ -1009,7 +1013,7 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 		if err = threadG.Wait(); err != nil {
 			if errors.Is(err, context.Canceled) {
 				uploadProgress.UploadParts = utils.SliceFilter(uploadProgress.UploadParts, func(s string) bool { return s != "" })
-				base.SaveUploadProgress(y, uploadProgress, y.getTokenInfo().SessionKey, fileMd5Hex)
+				base.SaveUploadProgress(y, uploadProgress, sessionKey, fileMd5Hex)
 			}
 			return nil, nil, err
 		}
@@ -1119,7 +1123,7 @@ func (y *Cloud189PC) OldUpload(ctx context.Context, dstDir model.Obj, file model
 
 		// 获取断点状态
 		fullUrl := API_URL + "/getUploadFileStatus.action"
-		if y.isFamily() {
+		if isFamily {
 			fullUrl = API_URL + "/family/file/getFamilyFileStatus.action"
 		}
 		_, err = y.get(fullUrl, func(req *resty.Request) {

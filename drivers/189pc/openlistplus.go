@@ -51,6 +51,10 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 			familyObj = &model.Object{Name: name, Size: int64(len(body)), Modified: now, Ctime: now}
 		}
 		if err = y.SaveFamilyFileToPersonCloud(ctx, y.FamilyID, familyObj, dstDir, true); err != nil {
+			go y.Delete(context.TODO(), y.FamilyID, familyObj)
+			if y.cleanFamilyTransferFile != nil {
+				go y.cleanFamilyTransferFile()
+			}
 			return nil, err
 		}
 		go y.Delete(context.TODO(), y.FamilyID, familyObj)
@@ -76,6 +80,13 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 
 func (y *Cloud189PC) OpenListPlusDeleteSourceAfterCAS(ctx context.Context, dstDir model.Obj, uploadedObj model.Obj, sourceName string) error {
 	if uploadedObj != nil {
+		if !y.isFamily() && y.FamilyTransfer {
+			err := y.Delete(ctx, y.FamilyID, uploadedObj)
+			if y.cleanFamilyTransferFile != nil {
+				go y.cleanFamilyTransferFile()
+			}
+			return err
+		}
 		return y.OpenListPlusDeletePermanently(ctx, uploadedObj)
 	}
 	obj, err := y.findFileByName(ctx, sourceName, dstDir.GetID(), y.isFamily())
@@ -95,7 +106,40 @@ func (y *Cloud189PC) OpenListPlusDeletePermanently(ctx context.Context, obj mode
 func (y *Cloud189PC) OpenListPlusRestoreFromCAS(ctx context.Context, dstDir model.Obj, casFileName string, info *casfile.Info) (model.Obj, error) {
 	useCurrentName := openlistplus.ShouldUseCurrentRestoreName(y) || openlistplus.HasPreviewRestorePrefix(casFileName)
 	sourceName := openlistplus.ResolveRestoreName(casFileName, info, useCurrentName)
-	isFamily := y.isFamily()
+
+	if !y.isFamily() && y.FamilyTransfer {
+		if y.familyTransferFolder == nil {
+			return nil, fmt.Errorf("189pc restore: family transfer folder not initialized")
+		}
+		familyObj, err := y.openListPlusRestoreFromCASToDir(ctx, y.familyTransferFolder, sourceName, info, true)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			go y.Delete(context.TODO(), y.FamilyID, familyObj)
+			if y.cleanFamilyTransferFile != nil {
+				go y.cleanFamilyTransferFile()
+			}
+		}()
+		if err = y.SaveFamilyFileToPersonCloud(ctx, y.FamilyID, familyObj, dstDir, true); err != nil {
+			return nil, err
+		}
+		if obj, err := y.findFileByName(ctx, sourceName, dstDir.GetID(), false); err == nil {
+			return obj, nil
+		}
+		return &model.Object{
+			Name:     sourceName,
+			Size:     info.Size,
+			Modified: time.Now(),
+			Ctime:    time.Now(),
+			HashInfo: utils.NewHashInfo(utils.MD5, info.MD5),
+		}, nil
+	}
+
+	return y.openListPlusRestoreFromCASToDir(ctx, dstDir, sourceName, info, y.isFamily())
+}
+
+func (y *Cloud189PC) openListPlusRestoreFromCASToDir(ctx context.Context, dstDir model.Obj, sourceName string, info *casfile.Info, isFamily bool) (model.Obj, error) {
 	fullURL := UPLOAD_URL
 	if isFamily {
 		fullURL += "/family"
