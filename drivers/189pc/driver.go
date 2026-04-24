@@ -371,7 +371,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		defer func() {
 			if familyTransferUploadedObj != nil {
 				if err != nil {
-					go y.Delete(context.TODO(), y.FamilyID, familyTransferUploadedObj)
+					_ = y.deleteFamilyTransferObjPermanently(context.TODO(), familyTransferUploadedObj)
 					if y.cleanFamilyTransferFile != nil {
 						go y.cleanFamilyTransferFile()
 					}
@@ -381,11 +381,15 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 					return
 				}
 				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, familyTransferUploadedObj, transferDstDir, true)
-				go y.Delete(context.TODO(), y.FamilyID, familyTransferUploadedObj)
+				deleteErr := y.deleteFamilyTransferObjPermanently(context.TODO(), familyTransferUploadedObj)
 				if y.cleanFamilyTransferFile != nil {
 					go y.cleanFamilyTransferFile()
 				}
 				if err != nil {
+					return
+				}
+				if deleteErr != nil {
+					err = deleteErr
 					return
 				}
 

@@ -434,6 +434,9 @@ func (d *Local) Put(ctx context.Context, dstDir model.Obj, file model.FileStream
 	if err != nil {
 		return nil, err
 	}
+	if err = out.Close(); err != nil {
+		return nil, err
+	}
 	err = os.Chtimes(fullPath, stream.ModTime(), stream.ModTime())
 	if err != nil {
 		log.Errorf("[local] failed to change time of %s: %s", fullPath, err)
