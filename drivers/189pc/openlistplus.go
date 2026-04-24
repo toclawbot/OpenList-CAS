@@ -43,6 +43,8 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 	}
 
 	if !y.isFamily() && y.FamilyTransfer {
+		y.beginFamilyTransfer()
+		defer y.endFamilyTransfer()
 		familyObj, _, err := y.StreamUpload(ctx, y.familyTransferFolder, file, nil, true, false)
 		if err != nil {
 			return nil, err
@@ -51,20 +53,11 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 			familyObj = &model.Object{Name: name, Size: int64(len(body)), Modified: now, Ctime: now}
 		}
 		if err = y.SaveFamilyFileToPersonCloud(ctx, y.FamilyID, familyObj, dstDir, true); err != nil {
-			_ = y.deleteFamilyTransferObjPermanently(context.TODO(), familyObj)
-			if y.cleanFamilyTransferFile != nil {
-				go y.cleanFamilyTransferFile()
-			}
+			_ = y.cleanupFamilyTransferObj(context.TODO(), familyObj)
 			return nil, err
 		}
-		if err = y.deleteFamilyTransferObjPermanently(ctx, familyObj); err != nil {
-			if y.cleanFamilyTransferFile != nil {
-				go y.cleanFamilyTransferFile()
-			}
-			return nil, err
-		}
-		if y.cleanFamilyTransferFile != nil {
-			go y.cleanFamilyTransferFile()
+		if deleteErr := y.cleanupFamilyTransferObj(context.TODO(), familyObj); deleteErr != nil {
+			utils.Log.Errorf("cleanupFamilyTransferObjError:%s", deleteErr)
 		}
 		obj, findErr := y.findFileByName(ctx, name, dstDir.GetID(), false)
 		if findErr == nil {
@@ -86,11 +79,7 @@ func (y *Cloud189PC) OpenListPlusWriteCAS(ctx context.Context, dstDir model.Obj,
 func (y *Cloud189PC) OpenListPlusDeleteSourceAfterCAS(ctx context.Context, dstDir model.Obj, uploadedObj model.Obj, sourceName string) error {
 	if uploadedObj != nil {
 		if !y.isFamily() && y.FamilyTransfer {
-			err := y.deleteFamilyTransferObjPermanently(ctx, uploadedObj)
-			if y.cleanFamilyTransferFile != nil {
-				go y.cleanFamilyTransferFile()
-			}
-			return err
+			return y.cleanupFamilyTransferObj(ctx, uploadedObj)
 		}
 		return y.OpenListPlusDeletePermanently(ctx, uploadedObj)
 	}
@@ -108,30 +97,43 @@ func (y *Cloud189PC) OpenListPlusDeletePermanently(ctx context.Context, obj mode
 	return y.Delete(ctx, IF(y.isFamily(), y.FamilyID, ""), model.UnwrapObjName(obj))
 }
 
-func (y *Cloud189PC) deleteFamilyTransferObjPermanently(ctx context.Context, obj model.Obj) error {
+func (y *Cloud189PC) cleanupFamilyTransferObj(ctx context.Context, obj model.Obj) error {
+	_ = ctx
+	y.queueFamilyTransferCleanupObj(obj)
+	return nil
+}
+
+func (y *Cloud189PC) queueFamilyTransferCleanupObj(obj model.Obj) {
+	y.familyTransferMu.Lock()
+	if obj != nil {
+		y.familyTransferCleanupObjs = append(y.familyTransferCleanupObjs, obj)
+	}
+	y.scheduleFamilyTransferCleanupLocked()
+	y.familyTransferMu.Unlock()
+}
+
+func (y *Cloud189PC) deleteFamilyTransferObjNow(ctx context.Context, obj model.Obj) error {
 	if obj == nil {
 		return nil
 	}
-	if obj.GetID() == "" {
-		return y.cleanFamilyTransfer(ctx)
+	target := obj
+	if target.GetID() == "" {
+		if y.familyTransferFolder != nil && target.GetName() != "" {
+			if found, err := y.findFileByName(ctx, target.GetName(), y.familyTransferFolder.GetID(), true); err == nil {
+				target = found
+			}
+		}
+		if target.GetID() == "" {
+			return nil
+		}
 	}
-	task := BatchTaskInfo{
-		FileId:   obj.GetID(),
-		FileName: obj.GetName(),
-		IsFolder: BoolToNumber(obj.IsDir()),
+	err := y.Delete(ctx, y.FamilyID, target)
+	if err != nil && y.familyTransferFolder != nil && obj.GetName() != "" {
+		if found, findErr := y.findFileByName(ctx, obj.GetName(), y.familyTransferFolder.GetID(), true); findErr == nil {
+			err = y.Delete(ctx, y.FamilyID, found)
+		}
 	}
-	resp, err := y.CreateBatchTask("DELETE", y.FamilyID, "", nil, task)
-	if err != nil {
-		return err
-	}
-	if err = y.WaitBatchTask("DELETE", resp.TaskID, time.Second); err != nil {
-		return err
-	}
-	resp, err = y.CreateBatchTask("CLEAR_RECYCLE", y.FamilyID, "", nil, task)
-	if err != nil {
-		return err
-	}
-	return y.WaitBatchTask("CLEAR_RECYCLE", resp.TaskID, time.Second)
+	return err
 }
 
 func (y *Cloud189PC) OpenListPlusRestoreFromCAS(ctx context.Context, dstDir model.Obj, casFileName string, info *casfile.Info) (model.Obj, error) {
@@ -142,15 +144,14 @@ func (y *Cloud189PC) OpenListPlusRestoreFromCAS(ctx context.Context, dstDir mode
 		if y.familyTransferFolder == nil {
 			return nil, fmt.Errorf("189pc restore: family transfer folder not initialized")
 		}
+		y.beginFamilyTransfer()
+		defer y.endFamilyTransfer()
 		familyObj, err := y.openListPlusRestoreFromCASToDir(ctx, y.familyTransferFolder, sourceName, info, true)
 		if err != nil {
 			return nil, err
 		}
 		defer func() {
-			_ = y.deleteFamilyTransferObjPermanently(context.TODO(), familyObj)
-			if y.cleanFamilyTransferFile != nil {
-				go y.cleanFamilyTransferFile()
-			}
+			_ = y.cleanupFamilyTransferObj(context.TODO(), familyObj)
 		}()
 		if err = y.SaveFamilyFileToPersonCloud(ctx, y.FamilyID, familyObj, dstDir, true); err != nil {
 			return nil, err

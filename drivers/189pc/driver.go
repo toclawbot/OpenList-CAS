@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/drivers/base"
@@ -33,13 +34,19 @@ type Cloud189PC struct {
 
 	uploadThread int
 
-	familyTransferFolder    *Cloud189Folder
-	cleanFamilyTransferFile func()
+	familyTransferFolder       *Cloud189Folder
+	cleanFamilyTransferFile    func()
+	familyTransferMu           sync.Mutex
+	familyTransferActive       int
+	familyTransferCleanupTimer *time.Timer
+	familyTransferCleanupObjs  []model.Obj
 
 	storageConfig driver.Config
 	ref           *Cloud189PC
 	cron          *cron.Cron
 }
+
+const familyTransferCleanupDelay = 5 * time.Second
 
 func (y *Cloud189PC) Config() driver.Config {
 	if y.storageConfig.Name == "" {
@@ -134,6 +141,65 @@ func (y *Cloud189PC) Init(ctx context.Context) (err error) {
 		return err
 	}
 	return openlistplus.StartAutoRestoreExistingCAS(ctx, y)
+}
+
+func (y *Cloud189PC) beginFamilyTransfer() {
+	y.familyTransferMu.Lock()
+	y.familyTransferActive++
+	y.familyTransferMu.Unlock()
+}
+
+func (y *Cloud189PC) endFamilyTransfer() {
+	y.familyTransferMu.Lock()
+	if y.familyTransferActive > 0 {
+		y.familyTransferActive--
+	}
+	if y.familyTransferActive == 0 {
+		y.scheduleFamilyTransferCleanupLocked()
+	}
+	y.familyTransferMu.Unlock()
+}
+
+func (y *Cloud189PC) scheduleFamilyTransferCleanup() {
+	y.familyTransferMu.Lock()
+	y.scheduleFamilyTransferCleanupLocked()
+	y.familyTransferMu.Unlock()
+}
+
+func (y *Cloud189PC) scheduleFamilyTransferCleanupLocked() {
+	if y.familyTransferCleanupTimer != nil {
+		y.familyTransferCleanupTimer.Stop()
+	}
+	y.familyTransferCleanupTimer = time.AfterFunc(familyTransferCleanupDelay, y.runFamilyTransferCleanupIfIdle)
+}
+
+func (y *Cloud189PC) runFamilyTransferCleanupIfIdle() {
+	y.familyTransferMu.Lock()
+	objs := y.familyTransferCleanupObjs
+	y.familyTransferCleanupObjs = nil
+	shouldCleanFolder := y.familyTransferActive == 0
+	y.familyTransferCleanupTimer = nil
+	y.familyTransferMu.Unlock()
+
+	for _, obj := range objs {
+		if err := y.deleteFamilyTransferObjNow(context.TODO(), obj); err != nil {
+			utils.Log.Errorf("cleanupFamilyTransferObjError:%s", err)
+		}
+	}
+	if !shouldCleanFolder {
+		return
+	}
+
+	y.familyTransferMu.Lock()
+	if y.familyTransferActive != 0 {
+		y.familyTransferMu.Unlock()
+		return
+	}
+	err := y.cleanFamilyTransfer(context.TODO())
+	y.familyTransferMu.Unlock()
+	if err != nil {
+		utils.Log.Errorf("cleanFamilyTransferFolderError:%s", err)
+	}
 }
 
 func (d *Cloud189PC) InitReference(storage driver.Driver) error {
@@ -356,6 +422,8 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 
 	if !isFamily && y.FamilyTransfer {
 		familyTransferEnabled = true
+		y.beginFamilyTransfer()
+		defer y.endFamilyTransfer()
 		transferDstDir := dstDir
 		dstDir = y.familyTransferFolder
 
@@ -371,25 +439,17 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		defer func() {
 			if familyTransferUploadedObj != nil {
 				if err != nil {
-					_ = y.deleteFamilyTransferObjPermanently(context.TODO(), familyTransferUploadedObj)
-					if y.cleanFamilyTransferFile != nil {
-						go y.cleanFamilyTransferFile()
-					}
+					_ = y.cleanupFamilyTransferObj(context.TODO(), familyTransferUploadedObj)
 					return
 				}
 				if prepared != nil && prepared.CAS != nil && openlistplus.ShouldDeleteSource(y) {
 					return
 				}
 				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, familyTransferUploadedObj, transferDstDir, true)
-				deleteErr := y.deleteFamilyTransferObjPermanently(context.TODO(), familyTransferUploadedObj)
-				if y.cleanFamilyTransferFile != nil {
-					go y.cleanFamilyTransferFile()
+				if deleteErr := y.cleanupFamilyTransferObj(context.TODO(), familyTransferUploadedObj); deleteErr != nil {
+					utils.Log.Errorf("cleanupFamilyTransferObjError:%s", deleteErr)
 				}
 				if err != nil {
-					return
-				}
-				if deleteErr != nil {
-					err = deleteErr
 					return
 				}
 

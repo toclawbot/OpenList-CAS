@@ -1245,11 +1245,11 @@ func (y *Cloud189PC) createFamilyTransferFolder() error {
 	return nil
 }
 
-// 清理中转文件夹
+// Clean family transfer folder.
 func (y *Cloud189PC) cleanFamilyTransfer(ctx context.Context) error {
 	transferFolderId := y.familyTransferFolder.GetID()
-	for pageNum := 1; ; pageNum++ {
-		resp, err := y.getFilesWithPage(ctx, transferFolderId, true, pageNum, 100, "lastOpTime", "asc")
+	for {
+		resp, err := y.getFilesWithPage(ctx, transferFolderId, true, 1, 100, "lastOpTime", "asc")
 		if err != nil {
 			return err
 		}
@@ -1292,13 +1292,15 @@ func (y *Cloud189PC) cleanFamilyTransfer(ctx context.Context) error {
 				return err
 			}
 			err = y.WaitBatchTask("CLEAR_RECYCLE", resp.TaskID, time.Second)
-			return err
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-// 获取家庭云所有用户信息
+// Get all family cloud users.
 func (y *Cloud189PC) getFamilyInfoList() ([]FamilyInfoResp, error) {
 	var resp FamilyInfoListResp
 	_, err := y.get(API_URL+"/family/manage/getFamilyList.action", nil, &resp, true)
